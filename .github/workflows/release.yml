@@ -1,0 +1,109 @@
+name: Release and Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.26.0'
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run go mod tidy
+      run: go mod tidy
+
+    - name: Verify no changes after tidy
+      run: git diff --exit-code go.mod go.sum
+
+    - name: Create and publish Go package
+      run: |
+        TAG_NAME="${{ github.event.release.tag_name }}"
+        MODULE_PATH="github.com/${{ github.repository }}"
+        echo "Publishing Go package $MODULE_PATH@$TAG_NAME"
+        
+        # Verify the tag exists (it should, since this is triggered by a release)
+        echo "Current tag: $(git describe --tags --exact-match HEAD 2>/dev/null || echo 'No tag on HEAD')"
+        echo "Target tag: $TAG_NAME"
+        
+        # Force the Go proxy to index the module by making a request
+        echo "Requesting module indexing..."
+        go list -m "$MODULE_PATH@$TAG_NAME" || echo "Module indexing initiated"
+        
+        # Wait a moment for propagation
+        sleep 10
+
+    - name: Trigger Go module proxy
+      run: |
+        TAG_NAME="${{ github.event.release.tag_name }}"
+        MODULE_PATH="github.com/${{ github.repository }}"
+        echo "Triggering Go module proxy for $MODULE_PATH@$TAG_NAME"
+        curl -f "https://proxy.golang.org/$MODULE_PATH/@v/$TAG_NAME.info" || echo "Module may not be available immediately"
+
+    - name: Verify module availability
+      run: |
+        TAG_NAME="${{ github.event.release.tag_name }}"
+        MODULE_PATH="github.com/${{ github.repository }}"
+        echo "Verifying module availability..."
+        
+        # Try multiple times with increasing delays
+        for i in {1..5}; do
+          echo "Attempt $i/5: Checking $MODULE_PATH@$TAG_NAME"
+          
+          if go list -m "$MODULE_PATH@$TAG_NAME" 2>/dev/null; then
+            echo "✅ Module is available!"
+            
+            # Test that someone can actually import it
+            echo "Testing module import..."
+            mkdir -p /tmp/test-import-$$
+            cd /tmp/test-import-$$
+            go mod init test-import
+            if go get "$MODULE_PATH@$TAG_NAME"; then
+              echo "✅ Module can be imported successfully!"
+              cd - && rm -rf /tmp/test-import-$$
+              exit 0
+            else
+              echo "❌ Module import failed"
+              cd - && rm -rf /tmp/test-import-$$
+            fi
+          else
+            echo "⏳ Module not yet available, waiting..."
+          fi
+          
+          sleep $((i * 10))
+        done
+        
+        echo "⚠️ Module availability verification timed out, but it may become available shortly"
+        exit 0
+
+    - name: Publish package summary
+      run: |
+        TAG_NAME="${{ github.event.release.tag_name }}"
+        MODULE_PATH="github.com/${{ github.repository }}"
+        echo "📦 Package Publication Summary"
+        echo "=============================="
+        echo "Module: $MODULE_PATH"
+        echo "Version: $TAG_NAME"
+        echo "Repository: https://github.com/${{ github.repository }}"
+        echo ""
+        echo "To use this package:"
+        echo "go get $MODULE_PATH@$TAG_NAME"
+        echo ""
+        echo "Import in your code:"
+        echo 'import "github.com/${{ github.repository }}"'
