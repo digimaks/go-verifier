@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.26.0']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run go mod verify
+      run: go mod verify
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Run go mod tidy
+      run: go mod tidy
+
+    - name: Verify no changes after tidy
+      run: git diff --exit-code go.mod go.sum
