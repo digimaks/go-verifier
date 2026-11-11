@@ -127,7 +127,7 @@ func normalizeVPScheme(link string) string {
 }
 
 // Status maps the transaction's current state to one of:
-// "initialized", "wallet_scanned", "success_wallet", "failed_attestation", "failed_wallet".
+// "initialized", "wallet_scanned", "success_wallet", "failed_attestation", "failed_wallet", "expired" (v2 only).
 func (i *Inst) Status(ctx *azugo.Context, presentID string) (string, error) {
 	if i.config.VerifierEngine == EngineV2 {
 		return i.verifierV2Client.status(ctx, presentID)
@@ -237,6 +237,8 @@ func (i *Inst) PollUntilComplete(ctx context.Context, presentID string, retries 
 				// retry rather than failing the whole poll on one race.
 			case "failed_attestation", "failed_wallet":
 				return nil, errPresentationFailed
+			case "expired":
+				return nil, errPresentationTimedOut
 			}
 		}
 

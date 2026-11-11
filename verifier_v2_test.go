@@ -26,8 +26,8 @@ func TestVerifierV2_AttributesWith_NonPID(t *testing.T) {
 					{
 						QueryID:      "mdl_mdoc",
 						DoctypeOrVct: "org.iso.18013.5.1.mDL",
-						Claims: map[string]map[string]interface{}{
-							"org.iso.18013.5.1.mDL": {
+						Claims: map[string]interface{}{
+							"org.iso.18013.5.1.mDL": map[string]interface{}{
 								"document_number":   "DL123456",
 								"issuing_authority": "Road Traffic Safety Directorate",
 							},
@@ -57,5 +57,41 @@ func TestVerifierV2_AttributesWith_NonPID(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("attributesWith = %+v, want %+v", got, want)
+	}
+}
+
+func TestAttributesFromCredentialsSDJWTFlat(t *testing.T) {
+	tpl := &Template{Credentials: []CredentialRequest{{
+		DoctypeOrVct: "lv.dativa.employee_vc_sd_jwt",
+		Format:       "dc+sd-jwt",
+		Claims:       []ClaimRequest{{Key: "employee_id"}, {Key: "employer"}},
+	}}}
+	var res v2ResultCredential
+	raw := `{"doctypeOrVct":"lv.dativa.employee_vc_sd_jwt","claims":{"employee_id":"E1","employer":{"registration_number":"42"}}}`
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatal(err)
+	}
+	if got := attributesFromCredentials(tpl, []v2ResultCredential{res}); len(got) != 2 {
+		t.Fatalf("want 2 attributes, got %v", got)
+	}
+}
+
+func TestVerifierV2_Status(t *testing.T) {
+	for state, want := range map[string]string{
+		"verified": "success_wallet", "expired": "expired", "failed": "failed_attestation",
+		"wallet_engaged": "wallet_scanned", "created": "initialized",
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"sessionId":"s","state":"` + state + `"}`))
+		}))
+
+		c := &verifierV2Client{config: &V2Configuration{URL: srv.URL, APIKey: "key"}}
+
+		got, err := c.backgroundStatus("s")
+		srv.Close()
+
+		if err != nil || got != want {
+			t.Errorf("state %q: got (%q, %v), want (%q, nil)", state, got, err, want)
+		}
 	}
 }

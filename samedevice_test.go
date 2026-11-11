@@ -42,8 +42,8 @@ func newTestSameDeviceInst(t *testing.T) (i *Inst, capturedRedirectURI *string) 
 				Credentials: []v2ResultCredential{
 					{
 						DoctypeOrVct: "org.iso.18013.5.1.mDL",
-						Claims: map[string]map[string]interface{}{
-							"org.iso.18013.5.1.mDL": {"document_number": "DL123456"},
+						Claims: map[string]interface{}{
+							"org.iso.18013.5.1.mDL": map[string]interface{}{"document_number": "DL123456"},
 						},
 					},
 				},

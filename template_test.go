@@ -172,3 +172,51 @@ func TestDcqlQuery_NonPID(t *testing.T) {
 		t.Fatalf("dcqlQuery claims = %+v, want 2 entries", cred["claims"])
 	}
 }
+
+func TestDcqlQuery_SDJWT(t *testing.T) {
+	tpl := &Template{Credentials: []CredentialRequest{{
+		ID: "emp", DoctypeOrVct: "lv.dativa.employee_vc_sd_jwt", Format: "dc+sd-jwt",
+		Claims: []ClaimRequest{{Key: "given_name"}},
+	}}}
+
+	cred := dcqlQuery(tpl)["credentials"].([]map[string]interface{})[0]
+
+	meta, ok := cred["meta"].(map[string][]string)
+	if !ok || len(meta["vct_values"]) != 1 || meta["vct_values"][0] != "lv.dativa.employee_vc_sd_jwt" {
+		t.Fatalf("meta = %+v", cred["meta"])
+	}
+
+	path := cred["claims"].([]map[string]interface{})[0]["path"].([]string)
+	if len(path) != 1 || path[0] != "given_name" {
+		t.Fatalf("path = %+v, want [given_name]", path)
+	}
+}
+
+func TestDcqlQuery_ClaimSets(t *testing.T) {
+	tpl := &Template{Credentials: []CredentialRequest{{
+		ID: "pid", DoctypeOrVct: "eu.europa.ec.eudi.pid.1", Format: "mso_mdoc",
+		Claims: []ClaimRequest{
+			{Key: "given_name", IntentToRetain: true},
+			{Key: "personal_administrative_number"},
+		},
+	}}}
+
+	cred := dcqlQuery(tpl)["credentials"].([]map[string]interface{})[0]
+
+	sets, ok := cred["claim_sets"].([][]string)
+	if !ok || len(sets) != 2 || len(sets[0]) != 2 || len(sets[1]) != 1 || sets[1][0] != "given_name" {
+		t.Fatalf("claim_sets = %+v", cred["claim_sets"])
+	}
+
+	for _, c := range cred["claims"].([]map[string]interface{}) {
+		if c["id"] == nil || c["intent_to_retain"] != nil {
+			t.Fatalf("claim = %+v", c)
+		}
+	}
+
+	tpl.Credentials[0].Claims[0].IntentToRetain = false
+
+	if _, ok := dcqlQuery(tpl)["credentials"].([]map[string]interface{})[0]["claim_sets"]; ok {
+		t.Fatal("claim_sets sent without a mix of flagged and unflagged claims")
+	}
+}
