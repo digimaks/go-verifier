@@ -3,7 +3,6 @@
 package verifier
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,9 +23,10 @@ type v2SessionResponse struct {
 // response (v2StatusResponse) and the webhook payload (webhook.go) - both
 // carry the identical shape.
 type v2ResultCredential struct {
-	QueryID      string                            `json:"queryId"`
-	DoctypeOrVct string                            `json:"doctypeOrVct"`
-	Claims       map[string]map[string]interface{} `json:"claims"`
+	QueryID      string `json:"queryId"`
+	DoctypeOrVct string `json:"doctypeOrVct"`
+	// mdoc: {namespace: {claim: value}}; SD-JWT: flat {claim: value}.
+	Claims map[string]interface{} `json:"claims"`
 }
 
 type v2StatusResponse struct {
@@ -49,9 +49,13 @@ func attributesFromCredentials(tpl *Template, credentials []v2ResultCredential) 
 
 	for _, cred := range tpl.Credentials {
 		for _, resCred := range credentials {
-			claims, ok := resCred.Claims[cred.DoctypeOrVct]
+			claims, ok := resCred.Claims[cred.DoctypeOrVct].(map[string]interface{})
 			if !ok {
-				continue
+				if !isSDJWT(cred.Format) || resCred.DoctypeOrVct != cred.DoctypeOrVct {
+					continue
+				}
+
+				claims = resCred.Claims
 			}
 
 			for _, claim := range cred.Claims {
@@ -87,6 +91,8 @@ func (c *verifierV2Client) backgroundClient() http.Client {
 	return http.NewClient().WithBaseURL(strings.TrimSuffix(c.config.URL, "/"))
 }
 
+func isSDJWT(format string) bool { return format == "dc+sd-jwt" || format == "vc+sd-jwt" }
+
 // dcqlQuery builds a DCQL query from the template: one DCQL credential per
 // template credential, one claim path per requested claim.
 func dcqlQuery(tpl *Template) map[string]interface{} {
@@ -94,16 +100,57 @@ func dcqlQuery(tpl *Template) map[string]interface{} {
 
 	for _, cred := range tpl.Credentials {
 		claims := make([]map[string]interface{}, 0, len(cred.Claims))
+		sdJWT := isSDJWT(cred.Format)
+
+		ids := make([]string, 0, len(cred.Claims))
+
+		var required []string
+
 		for _, claim := range cred.Claims {
-			claims = append(claims, map[string]interface{}{"path": []string{cred.DoctypeOrVct, claim.Key}})
+			// mdoc paths are [namespace, element]; SD-JWT paths are plain claim names.
+			path := []string{cred.DoctypeOrVct, claim.Key}
+			if sdJWT {
+				path = []string{claim.Key}
+			}
+
+			c := map[string]interface{}{"path": path}
+
+			if claim.IntentToRetain {
+				required = append(required, claim.Key)
+			}
+
+			ids = append(ids, claim.Key)
+			claims = append(claims, c)
 		}
 
-		credentials = append(credentials, map[string]interface{}{
+		// intent_to_retain is rejected by the backend, so flagged claims are
+		// required and the rest optional, expressed via claim_sets (preferred first).
+		var claimSets [][]string
+
+		if len(required) > 0 && len(required) < len(ids) {
+			for i, c := range claims {
+				c["id"] = ids[i]
+			}
+
+			claimSets = [][]string{ids, required}
+		}
+
+		var meta interface{} = map[string]string{"doctype_value": cred.DoctypeOrVct}
+		if sdJWT {
+			meta = map[string][]string{"vct_values": {cred.DoctypeOrVct}}
+		}
+
+		dcql := map[string]interface{}{
 			"id":     cred.ID,
 			"format": cred.Format,
-			"meta":   map[string]string{"doctype_value": cred.DoctypeOrVct},
+			"meta":   meta,
 			"claims": claims,
-		})
+		}
+		if claimSets != nil {
+			dcql["claim_sets"] = claimSets
+		}
+
+		credentials = append(credentials, dcql)
 	}
 
 	return map[string]interface{}{"credentials": credentials}
@@ -164,13 +211,11 @@ func (c *verifierV2Client) statusWith(client http.Client, sessionID string) (str
 	switch res.State {
 	case "verified":
 		return "success_wallet", nil
-	case "failed", "expired":
-		code := "unknown"
-		if res.Failure != nil {
-			code = res.Failure.Code
-		}
-
-		return "failed_attestation", errors.New(code)
+	case "expired":
+		return "expired", nil
+	case "failed":
+		// err stays nil: callers treat err as "could not fetch status".
+		return "failed_attestation", nil
 	case "wallet_engaged":
 		return "wallet_scanned", nil
 	default:

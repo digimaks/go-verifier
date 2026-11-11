@@ -36,8 +36,8 @@ func TestPollUntilComplete_RetriesWhenResultNotYetPopulated(t *testing.T) {
 					{
 						QueryID:      "mdl_mdoc",
 						DoctypeOrVct: "org.iso.18013.5.1.mDL",
-						Claims: map[string]map[string]interface{}{
-							"org.iso.18013.5.1.mDL": {"document_number": "DL123456"},
+						Claims: map[string]interface{}{
+							"org.iso.18013.5.1.mDL": map[string]interface{}{"document_number": "DL123456"},
 						},
 					},
 				},

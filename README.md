@@ -240,7 +240,7 @@ Content-Type: application/json
 | `New(cache, cfg, logger) (*Inst, error)` | both | construct |
 | `GenerateOffer(ctx, OfferRequest) (*Offer, error)` | both | low-level offer creation; `OfferRequest{Flow, TTL, RedirectURL}` |
 | `GenerateSameDeviceOffer(ctx, returnURL, data any) (*Offer, error)` | v2 | same_device offer + tx bookkeeping; `data` is optional caller correlation state returned unchanged by `HandleWalletReturn` |
-| `Status(ctx, presentID) (string, error)` | both | `initialized`/`wallet_scanned`/`success_wallet`/`failed_attestation`/`failed_wallet` |
+| `Status(ctx, presentID) (string, error)` | both | `initialized`/`wallet_scanned`/`success_wallet`/`failed_attestation`/`failed_wallet`/`expired` (v2) |
 | `Attributes(ctx, presentID) ([]Attribute, error)` | both | fetch claims once verified |
 | `AttributesWithCode(ctx, presentID, responseCode) ([]Attribute, error)` | both (v1 ignores code) | redeem a same-device session |
 | `HandleWalletReturn(ctx, tx, responseCode) (sessionID string, data any, attrs []Attribute, err error)` | v2 | resolve a `GenerateSameDeviceOffer` tx and redeem in one call |
